@@ -163,9 +163,14 @@ def stack(inputDir,stackedDir,start,basename,stackedBaseName,readType,writeType)
     iout32.save("outStacked"+str(writeType)+".tiff",0);
 
 
+def pixelParameters(channel,params):
+    for pixeldata in channel:
+        stdev = std(pixeldata)
+        average = mean(pixeldata);
+        params.append((average,stdev));
+    return params;
 
-
-def filterStackedImages(stackedDir,readType):
+def filterStackedImages(stackedDir,readType,writeType):
 
      im = None;
      dataToProcess = list();
@@ -174,52 +179,58 @@ def filterStackedImages(stackedDir,readType):
         file_name,extension = os.path.splitext(file);
         if extension == ".tiff":
 
-            imGrey = Image.open(stackedDir+"/"+file).convert(readType);
-            imData = asarray(imGrey).astype('int32');
+            im = Image.open(stackedDir+"/"+file).convert(readType);
+            imData = asarray(im).astype('int32');
             imFlat = [item for row in imData.tolist() for item in row]
             dataToProcess.append(imFlat);
 
-     # transformedData will contain a flat list of pixels for each channel
-     # r = 0, g = 1 and b = 2, same as if its grey scale
      transformedData = array(dataToProcess).transpose();
 
-     params = list();
-     for pixeldata in transformedData:
-        stdev = std(pixeldata)
-        average = mean(pixeldata);
-        params.append((average,stdev));
-
+     paramsMap = dict();
+     channelID = 0;
+     for channel in transformedData:
+        params = list();
+        paramsMap[channelID]=params;
+        for pixeldata in channel:
+            stdev = std(pixeldata)
+            average = mean(pixeldata);
+            params.append((average,stdev));
+        channelID +=1;
 
      outputData = list();
-     pixel = 0;
-     for pixeldata in transformedData:
-         print("Evaluating pixel # " + str(pixel))
-         value = 0;
-         stdev = params[pixel][1];
-         ave = params[pixel][0];
-         count = 1;
-         image = 0;
-         imageList = list();
-         for individualPixelData in pixeldata:
-             delta = abs(individualPixelData - ave)
-             if delta < 1*stdev:
-                 value += individualPixelData;
-                 count += 1;
-             image += 1;
-         pixel += 1;
-         outputData.append(value/count);
+     channelID = 0;
+     for channel in transformedData:
+         channelData = list();
+         params = paramsMap[channelID];
+         pixel = 0;
+         for pixeldata in channel:
+             print("Evaluating pixel # " + str(pixel))
+             value = 0;
+             stdev = params[pixel][1];
+             ave = params[pixel][0];
+             count = 1;
+             image = 0;
+             for individualPixelData in pixeldata:
+                 delta = abs(individualPixelData - ave)
+                 if delta <= 0.5*stdev:
+                     value += individualPixelData;
+                     count += 1;
+                 image += 1;
+             pixel += 1;
+             channelData.append(int32(value/count));
+         outputData.append(channelData);
+         channelID += 1;
 
-     iout32 = Image.new("I",im.size)
+
+     outputData = [tuple(item) for item in array(outputData).transpose().tolist()]
+
+     iout32 = Image.new(writeType,im.size)
      iout32.putdata(outputData);
      iout32.save("outStackedFiltered32.tiff",0);
 
 
 #stack("j2","Data",554,"image","image",'RGB','RGB')
-
-
-
-filterStackedImages('Test','RGB')
-
+filterStackedImages('Data','RGB','RGB')
 
 
 
@@ -234,6 +245,53 @@ filterStackedImages('Test','RGB')
 
 
 
+# def filterStackedImages(stackedDir,readType):
+#
+#      im = None;
+#      dataToProcess = list();
+#      files = [f for f in os.listdir(stackedDir)];
+#      for file in files:
+#         file_name,extension = os.path.splitext(file);
+#         if extension == ".tiff":
+#
+#             imGrey = Image.open(stackedDir+"/"+file).convert(readType);
+#             imData = asarray(imGrey).astype('int32');
+#             imFlat = [item for row in imData.tolist() for item in row]
+#             dataToProcess.append(imFlat);
+#
+#      # transformedData will contain a flat list of pixels for each channel
+#      # r = 0, g = 1 and b = 2, same as if its grey scale
+#      transformedData = array(dataToProcess).transpose();
+#
+#      params = list();
+#      for pixeldata in transformedData:
+#         stdev = std(pixeldata)
+#         average = mean(pixeldata);
+#         params.append((average,stdev));
+#
+#
+#      outputData = list();
+#      pixel = 0;
+#      for pixeldata in transformedData:
+#          print("Evaluating pixel # " + str(pixel))
+#          value = 0;
+#          stdev = params[pixel][1];
+#          ave = params[pixel][0];
+#          count = 1;
+#          image = 0;
+#          imageList = list();
+#          for individualPixelData in pixeldata:
+#              delta = abs(individualPixelData - ave)
+#              if delta < 1*stdev:
+#                  value += individualPixelData;
+#                  count += 1;
+#              image += 1;
+#          pixel += 1;
+#          outputData.append(value/count);
+#
+#      iout32 = Image.new("I",im.size)
+#      iout32.putdata(outputData);
+#      iout32.save("outStackedFiltered32.tiff",0);
 
 
 
