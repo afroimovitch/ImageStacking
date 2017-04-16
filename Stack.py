@@ -2,47 +2,47 @@ __author__ = 'adamfroimovitch'
 from numpy import *
 from PIL import Image
 from PIL import ImageChops
-
 import os
-#  $ ffmpeg -i video0006.avi assets/image%d.bmp
-
-
-
-
-def imDiff(arr1,arr2):
-    diff = abs(array(arr1)-array(arr2));
-    return diff
-
-def imSum(arr1,arr2,norm):
-    addition = (arr1+arr2)
-    if norm:
-        addition = addition/2;
-
-    return addition
 
 def totalSum(arr1):
     return sum(arr1)/arr1.size;
 
+# Returns a transformation tupple
 def transform(a,b,c,d,e,f):
+    # a = 1
+    # b = 0
+    # c = 0 # left-right
+    # d = 0
+    # e = 1
+    # f = 0 # up-down
     return  (a, b, c, d, e, f);
 
+# Crop image
+# x - Origin of crop box
+# y - Origin of crop box
+# w - Width of crop box
+# h - Height of crop box
+# im - Image to crop
 def crop(x,y,w,h,im):
     im = im.crop((x,y,w,h));
     return im;
 
+# Translate image
+# c - x translation
+# f - y translation
+# im - Image to translate
 def translate(c,f,im):
     T = transform(1,0,c,0,1,f);
     im = im.transform(im.size, Image.AFFINE,T);
     return im;
 
 def transformImage(c,f,im,shouldTranslate):
-
     if (shouldTranslate):
         im = translate(c,f,im);
-
     x=y=0;
     w=im.size[0];
     h=im.size[1];
+
     if c < 0:
         x = -c
     elif c > 0:
@@ -57,15 +57,19 @@ def transformImage(c,f,im,shouldTranslate):
 
     return im;
 
+# stack images using steepest descent method
+# inputDir - Location of images
+# stackedDir - Location to write stacked images for further processing if desired
+# start - Index of first image to load. Should be of format <basename><index>.<bmp>
+# basename - Basename for image names inside inputDir.  Should be of format <basename><index>.<bmp>
+# readType - Image mode to read (RGB,L)
+# writType - Image mode to write (RGB,L)
 
 def stack(inputDir,stackedDir,start,basename,stackedBaseName,readType,writeType):
 
     path = inputDir+"/"+basename;
-    a = 1
-    b = 0
+
     c = 0 # left-right
-    d = 0
-    e = 1
     f = 0 # up-down
 
     index = start;
@@ -162,71 +166,85 @@ def stack(inputDir,stackedDir,start,basename,stackedBaseName,readType,writeType)
     iout32.show()
     iout32.save("outStacked"+str(writeType)+".tiff",0);
 
+# Filter stacked images
+# Helpers
+def pixelParams(pixelTimeData):
+    stDev = std(pixelTimeData)
+    average = mean(pixelTimeData);
+    return (average,stDev);
 
-def pixelParameters(channel,params):
-    for pixeldata in channel:
-        stdev = std(pixeldata)
-        average = mean(pixeldata);
-        params.append((average,stdev));
-    return params;
+def filterPixel(pixel,ave,stDev):
+    value = 0;
+    delta = abs(pixel - ave)
+    if delta <= 1*stDev:
+        value = pixel;
+    return value;
 
-def filterStackedImages(stackedDir,readType,writeType):
+def filterChannel(channel,params):
+    channelData = list();
+    pixel = 0;
+    for pixelTimeData in channel:
+        print("Evaluating pixel # " + str(pixel))
+        stDev = params[pixel][1];
+        ave = params[pixel][0];
+        values = [filterPixel(pixel,ave,stDev) for pixel in pixelTimeData];
+        value = sum(values);
+        count = count_nonzero(array(values));
+        pixel += 1;
+        channelData.append(int32(value/count));
+    return channelData
 
-     im = None;
-     dataToProcess = list();
-     files = [f for f in os.listdir(stackedDir)];
-     for file in files:
+def stackedData(stackedDir,files,readType):
+
+    size = None;
+    dataToProcess = list();
+    for file in files:
         file_name,extension = os.path.splitext(file);
         if extension == ".tiff":
-
             im = Image.open(stackedDir+"/"+file).convert(readType);
             imData = asarray(im).astype('int32');
             imFlat = [item for row in imData.tolist() for item in row]
             dataToProcess.append(imFlat);
+            size = im.size;
+    return [dataToProcess,size];
 
-     transformedData = array(dataToProcess).transpose();
+# Filter images in stacked directory by standard deviation and average pixel value
+# stackedDir - Location of stacked images
+# readType - Image mode to read. Supported modes = 'RBG','L' 
+# writeType - Image mode to write output.  Supported modes = 'RBG','L'
+def filterStackedImages(stackedDir,readType,writeType):
 
-     paramsMap = dict();
-     channelID = 0;
-     for channel in transformedData:
-        params = list();
-        paramsMap[channelID]=params;
-        for pixeldata in channel:
-            stdev = std(pixeldata)
-            average = mean(pixeldata);
-            params.append((average,stdev));
+    files = [f for f in os.listdir(stackedDir)];
+    stacked = stackedData(stackedDir,files,readType)
+    dataToProcess = stacked[0];
+    originalSize = stacked[1];
+    transformedData = array(dataToProcess).transpose();
+
+    paramsMap = dict();
+    channelID = 0;
+    for channel in transformedData:
+        pixelVariation = list();
+        paramsMap[channelID]=pixelVariation;
+        for pixelTimeData in channel:
+            pixelVariation.append(pixelParams(pixelTimeData));
         channelID +=1;
 
-     outputData = list();
-     channelID = 0;
-     for channel in transformedData:
-         channelData = list();
-         params = paramsMap[channelID];
-         pixel = 0;
-         for pixeldata in channel:
-             print("Evaluating pixel # " + str(pixel))
-             value = 0;
-             stdev = params[pixel][1];
-             ave = params[pixel][0];
-             count = 1;
-             image = 0;
-             for individualPixelData in pixeldata:
-                 delta = abs(individualPixelData - ave)
-                 if delta <= 0.5*stdev:
-                     value += individualPixelData;
-                     count += 1;
-                 image += 1;
-             pixel += 1;
-             channelData.append(int32(value/count));
+    outputData = list();
+    channelID = 0;
+    for channel in transformedData:
+         pixelVariation = paramsMap[channelID];
+         channelData = filterChannel(channel,pixelVariation);
          outputData.append(channelData);
          channelID += 1;
 
 
-     outputData = [tuple(item) for item in array(outputData).transpose().tolist()]
+    outputData = [tuple(item) for item in array(outputData).transpose().tolist()]
 
-     iout32 = Image.new(writeType,im.size)
-     iout32.putdata(outputData);
-     iout32.save("outStackedFiltered32.tiff",0);
+    iout32 = Image.new(writeType,originalSize)
+    iout32.putdata(outputData);
+    iout32.save("StackedFiltered"+writeType+".tiff",0);
+
+
 
 
 #stack("j2","Data",554,"image","image",'RGB','RGB')
