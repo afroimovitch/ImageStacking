@@ -17,6 +17,22 @@ def transform(a,b,c,d,e,f):
     # f = 0 # up-down
     return  (a, b, c, d, e, f);
 
+
+def clipPixel(pixel,threshold):
+    if pixel < threshold:
+        pixel = 0;
+    return pixel;
+
+# Threshold an image
+# Replaces all pixels below threshold w 0 - assumes L image mode
+# im - image to threshold
+# threshold - minimum value to threshold over
+def threshold(im,threshold):
+    imData = asarray(im).astype('int32');
+    imData = [clipPixel(pixel,threshold) for row in imData.tolist() for pixel in row]
+    imt = Image.new("L",im.size);
+    imt.putdata(imData);
+    return imt;
 # Crop image
 # x - Origin of crop box
 # y - Origin of crop box
@@ -65,106 +81,112 @@ def transformImage(c,f,im,shouldTranslate):
 # readType - Image mode to read (RGB,L)
 # writType - Image mode to write (RGB,L)
 
-def stack(inputDir,stackedDir,start,basename,stackedBaseName,readType,writeType):
+def stack(srcDir,files,stackedDir):
 
-    path = inputDir+"/"+basename;
+
 
     c = 0 # left-right
     f = 0 # up-down
+    start = 0;
+    while True:
+        try:
+            im1R = Image.open(srcDir+"/"+files[start]).convert("RGB");
+            im1L = threshold(Image.open(srcDir+"/"+files[start]).convert("L"),40);
+            imOutRData = asarray(im1R).astype('int32');
+            imOutLData = asarray(im1L).astype('int32');
+            break;
+        except:
+            print("File " + files[start] + "was not an image file");
+            start += 1;
 
-    index = start;
-    im1 = Image.open(path+"0"+str(index)+".bmp").convert(readType);
-    im1Data = asarray(im1).astype('int32');
-    im1OutData = asarray(im1).astype('int32');
+    files = files[start:];
 
-    while (index < start + 50):
+    count = 2;
+    for file in files:
+        try:
+            im2R =Image.open(srcDir+"/"+file).convert("RGB");
+            im2L = threshold(Image.open(srcDir+"/"+file).convert("L"),40);
+        except:
+            print("File " + files[start] + "was not an image file");
+            continue;
 
-        index = index + 1;
-        name = path+"0"+str(index)+".bmp"
-        im2 =Image.open(name).convert(readType);
-        im2crp = transformImage(c,f,im2,True);
+        im2Lcrp = transformImage(c,f,im2L,True);
+        im1Lcrp = transformImage(c,f,im1L,False);
 
         reps = 0
-        phi = totalSum(asarray(ImageChops.subtract(im2crp,transformImage(c,f,im1,False))).astype('int32'));
+        phi = totalSum(asarray(ImageChops.subtract(im2Lcrp,im1Lcrp)).astype('int32'));
 
         while (True):
 
-            if (reps > 10 or phi < 0.1):
+            print("phi = " + str(phi) + "for c,f = " + str((c,f)));
+
+            if (reps > 10 or phi < 0.05):
                 break;
 
-            im2_cp = transformImage(c+1,f,im2,True);
-            im2_cm = transformImage(c-1,f,im2,True);
-            im2_fp = transformImage(c,f+1,im2,True);
-            im2_fm = transformImage(c,f-1,im2,True);
+            im2L_cp = transformImage(c+1,f,im2L,True);
+            im2L_cm = transformImage(c-1,f,im2L,True);
+            im2L_fp = transformImage(c,f+1,im2L,True);
+            im2L_fm = transformImage(c,f-1,im2L,True);
 
-            im1_cp = transformImage(c+1,f,im1,False);
-            im1_cm = transformImage(c-1,f,im1,False);
-            im1_fp = transformImage(c,f+1,im1,False);
-            im1_fm = transformImage(c,f-1,im1,False);
+            im1L_cp = transformImage(c+1,f,im1L,False);
+            im1L_cm = transformImage(c-1,f,im1L,False);
+            im1L_fp = transformImage(c,f+1,im1L,False);
+            im1L_fm = transformImage(c,f-1,im1L,False);
 
             # df by dc
-            phi0 = totalSum(asarray(ImageChops.subtract(im2_cp,im1_cp)).astype('int32'));
-            phi1 = totalSum(asarray(ImageChops.subtract(im2_cm,im1_cm)).astype('int32'));
+            phi0 = totalSum(asarray(ImageChops.subtract(im2L_cp,im1L_cp)).astype('int32'));
+            phi1 = totalSum(asarray(ImageChops.subtract(im2L_cm,im1L_cm)).astype('int32'));
             dfdc = (float(phi0)-float(phi1))/2;
 
             # df by df
-            phi0 = totalSum(asarray(ImageChops.subtract(im2_fp,im1_fp)).astype('int32'));
-            phi1 = totalSum(asarray(ImageChops.subtract(im2_fm,im1_fm)).astype('int32'));
+            phi0 = totalSum(asarray(ImageChops.subtract(im2L_fp,im1L_fp)).astype('int32'));
+            phi1 = totalSum(asarray(ImageChops.subtract(im2L_fm,im1L_fm)).astype('int32'));
             dfdf = (float(phi0)-float(phi1))/2;
 
             ctemp = c;
             ftemp = f;
-            alpha = 300;
+            alpha = 1000;
             innerPhi = phi;
             while (True):
 
                 ctemp -= alpha*dfdc;
                 ftemp -= alpha*dfdf;
+                im2L_temp = transformImage(ctemp,ftemp,im2L,True)
+                im1L_temp = transformImage(ctemp,ftemp,im1L,False)
 
-                im2_temp = transformImage(ctemp,ftemp,im2,True)
-                im1_temp = transformImage(ctemp,ftemp,im1,False)
-
-                phi = totalSum(asarray(ImageChops.subtract(im2_temp,im1_temp)).astype('int32'));
+                phi = totalSum(asarray(ImageChops.subtract(im2L_temp,im1L_temp)).astype('int32'));
 
                 if (phi <= innerPhi):
                     c = ctemp;
                     f = ftemp;
                     break;
                 else:
-                     ctemp = c;
-                     ftemp = f;
-                     alpha = alpha/3;
+                    ctemp = c;
+                    ftemp = f;
+                    alpha = alpha/3;
 
 
             reps += 1;
 
-        im2T = translate(c,f,im2);
-        im2Data = asarray(im2T).astype('int32');
-        im1OutData = im1OutData + im2Data;
+        im2TR = translate(c,f,im2R);
+        im2TR.save(stackedDir+"/"+str(count-2)+ ".tif",0);
+        im2RData = asarray(im2TR).astype('int32');
+        imOutRData = imOutRData + im2RData;
 
-        data = None;
-        if (readType == 'RGB'):
-             data = [tuple(item) for row in im2Data.tolist() for item in row]
-        else:
-            data = [item for row in im2Data.tolist() for item in row]
+        im2TL = translate(c,f,im2L);
+        im2LData = asarray(im2TL).astype('int32');
+        imOutLData = imOutLData + im2LData;
+        im1L.putdata([int32(item/count) for row in imOutLData.tolist() for item in row])
 
-        iout32 = Image.new(writeType,im1.size)
-        iout32.putdata(data)
-        iout32.save(stackedDir+"/"+stackedBaseName+str(index)+ ".tiff",0);
-        print("Saving " + name);
+        print("Saving " + stackedDir+"/"+str(count-2)+ ".tif");
+        count += 1;
 
-    iout32 = Image.new(writeType,im1.size)
-
-    data = None;
-    if (readType == 'RGB'):
-        data = [tuple(int32(pix/(index-start)) for pix in item) for row in im1OutData.tolist() for item in row]
-    else:
-        data = [item for row in im1OutData.tolist() for item in row]
-
+    iout32 = Image.new("RGB",im1R.size)
+    data = [tuple(int32(pix/(count)) for pix in item) for row in imOutRData.tolist() for item in row]
     iout32.putdata(data)
-
     iout32.show()
-    iout32.save("outStacked"+str(writeType)+".tiff",0);
+    iout32.save("outStacked.tif",0);
+
 
 # Filter stacked images
 # Helpers
@@ -195,33 +217,36 @@ def filterChannel(channel,params):
     return channelData
 
 def stackedData(stackedDir,files,readType):
-
     size = None;
     dataToProcess = list();
     for file in files:
-        file_name,extension = os.path.splitext(file);
-        if extension == ".tiff":
+        try:
             im = Image.open(stackedDir+"/"+file).convert(readType);
             imData = asarray(im).astype('int32');
             imFlat = [item for row in imData.tolist() for item in row]
             dataToProcess.append(imFlat);
             size = im.size;
+        except:
+            print("File " + file + "was not an image file");
     return [dataToProcess,size];
 
 # Filter images in stacked directory by standard deviation and average pixel value
 # stackedDir - Location of stacked images
-# readType - Image mode to read. Supported modes = 'RBG','L' 
+# readType - Image mode to read. Supported modes = 'RBG','L'
 # writeType - Image mode to write output.  Supported modes = 'RBG','L'
-def filterStackedImages(stackedDir,readType,writeType):
 
+def filterStackedImages(stackedDir,readType,writeType):
+    print("Begin stacking")
     files = [f for f in os.listdir(stackedDir)];
     stacked = stackedData(stackedDir,files,readType)
+    print("Files stacked")
     dataToProcess = stacked[0];
     originalSize = stacked[1];
     transformedData = array(dataToProcess).transpose();
 
     paramsMap = dict();
     channelID = 0;
+    print("Begin variation calcs")
     for channel in transformedData:
         pixelVariation = list();
         paramsMap[channelID]=pixelVariation;
@@ -231,6 +256,8 @@ def filterStackedImages(stackedDir,readType,writeType):
 
     outputData = list();
     channelID = 0;
+
+    print("Begin filtering")
     for channel in transformedData:
          pixelVariation = paramsMap[channelID];
          channelData = filterChannel(channel,pixelVariation);
@@ -242,76 +269,14 @@ def filterStackedImages(stackedDir,readType,writeType):
 
     iout32 = Image.new(writeType,originalSize)
     iout32.putdata(outputData);
-    iout32.save("StackedFiltered"+writeType+".tiff",0);
+    iout32.save("StackedFiltered"+writeType+".tif",0);
 
+srcDir = "j2-2x";
+files = [f for f in os.listdir(srcDir)];
+files = files[:50];
 
-
-
-#stack("j2","Data",554,"image","image",'RGB','RGB')
+stack(srcDir,files,"Data")
 filterStackedImages('Data','RGB','RGB')
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# def filterStackedImages(stackedDir,readType):
-#
-#      im = None;
-#      dataToProcess = list();
-#      files = [f for f in os.listdir(stackedDir)];
-#      for file in files:
-#         file_name,extension = os.path.splitext(file);
-#         if extension == ".tiff":
-#
-#             imGrey = Image.open(stackedDir+"/"+file).convert(readType);
-#             imData = asarray(imGrey).astype('int32');
-#             imFlat = [item for row in imData.tolist() for item in row]
-#             dataToProcess.append(imFlat);
-#
-#      # transformedData will contain a flat list of pixels for each channel
-#      # r = 0, g = 1 and b = 2, same as if its grey scale
-#      transformedData = array(dataToProcess).transpose();
-#
-#      params = list();
-#      for pixeldata in transformedData:
-#         stdev = std(pixeldata)
-#         average = mean(pixeldata);
-#         params.append((average,stdev));
-#
-#
-#      outputData = list();
-#      pixel = 0;
-#      for pixeldata in transformedData:
-#          print("Evaluating pixel # " + str(pixel))
-#          value = 0;
-#          stdev = params[pixel][1];
-#          ave = params[pixel][0];
-#          count = 1;
-#          image = 0;
-#          imageList = list();
-#          for individualPixelData in pixeldata:
-#              delta = abs(individualPixelData - ave)
-#              if delta < 1*stdev:
-#                  value += individualPixelData;
-#                  count += 1;
-#              image += 1;
-#          pixel += 1;
-#          outputData.append(value/count);
-#
-#      iout32 = Image.new("I",im.size)
-#      iout32.putdata(outputData);
-#      iout32.save("outStackedFiltered32.tiff",0);
-
-
 
 
 
