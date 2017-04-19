@@ -10,14 +10,9 @@ def __totalSum(arr1):
     return sum(arr1)/arr1.size;
 
 def __transform(a,b,c,d,e,f):
-    # a = 1
-    # b = 0
-    # c = 0 # left-right
-    # d = 0
-    # e = 1
-    # f = 0 # up-down
+    #c: left-right
+    #f: up-down
     return  (a, b, c, d, e, f);
-
 
 def __clipPixel(pixel,threshold):
     if pixel < threshold:
@@ -94,8 +89,6 @@ def __dPhibyDcDf(im2,im1,c,f):
 # writType - Image mode to write (RGB,L)
 
 def stack(srcDir,files,stackedDir):
-
-
 
     c = 0 # left-right
     f = 0 # up-down
